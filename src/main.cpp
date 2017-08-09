@@ -21,6 +21,8 @@
 
 #include <rtl-sdr.h>
 
+#include "CLI11.hpp"
+
 #define U8_F(x) ( (((float)(x)) - 127.4f) / 128.0f ) // 127.4 for tuner DC bias in rtl
 #define SAMPLE_RATE 2048000
 #define CENTER_FREQ 1575420000
@@ -58,11 +60,35 @@ void read_samples(rtlsdr_dev_t *dev)
                       0); // Default buffer size
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
     rtlsdr_dev_t *dev;
     int retval = 0;
+
+    // Parse command line
+    CLI::App app{"mj-sdr"};
+    int sample_rate = SAMPLE_RATE;
+    int center_freq = CENTER_FREQ;
+    int gain_mode = GAIN_MODE;
+    int gain = GAIN;
+    int device = 0;
+
+    app.add_option("-d,--device", device, "RTL-SDR device id", true);
+    app.add_option("-s,--sample_rate", sample_rate, "Sampling Rate in Hz", true);
+    app.add_option("-c,--center_freq", center_freq, "Center Frequency in Hz", true);
+    app.add_option("-m,--gain_mode", gain_mode, "Gain Mode (0=Automatic, 1=Manual)", true);
+    app.add_option("-g,--gain", gain, "Manual gain in tenths of dB", true);
+
+    try 
+    {
+        app.parse(argc, argv);
+    } 
+    catch (const CLI::ParseError &e) 
+    {
+        return app.exit(e);
+    }
 	
+    // Find rtl-sdr devices
     int devices = rtlsdr_get_device_count();
     for(int n=0; n < devices; n++)
     {
@@ -75,30 +101,30 @@ int main(void)
         return 0;
     }
 
-    retval = rtlsdr_open(&dev, devices-1);	// Open last device found
+    retval = rtlsdr_open(&dev, device);
     if (retval != 0)
     {
-        std::cout << "Failed to open device: " << devices-1 << "\n";
+        std::cout << "Failed to open device: " << device << "\n";
         return 0;
     }
 	
     // Configure rtlsdr settings
-    retval = rtlsdr_set_sample_rate(dev, SAMPLE_RATE);
-    if (retval == 0) std::cout << "Sample rate set to: " << SAMPLE_RATE << " Hz\n";
+    retval = rtlsdr_set_sample_rate(dev, sample_rate);
+    if (retval == 0) std::cout << "Sample rate set to: " << sample_rate << " Hz\n";
     else std::cout << "Setting sample rate failed!\n";
     
-    retval = rtlsdr_set_center_freq(dev, CENTER_FREQ);    
-    if (retval == 0) std::cout << "Center frequency set to: " << CENTER_FREQ << " Hz\n";
+    retval = rtlsdr_set_center_freq(dev, center_freq);    
+    if (retval == 0) std::cout << "Center frequency set to: " << center_freq << " Hz\n";
     else std::cout << "Setting center frequency failed!\n";
     
-    retval = rtlsdr_set_tuner_gain_mode(dev, GAIN_MODE);
-    if (retval == 0) std::cout << "Gain mode set to: " << ((GAIN_MODE == 0) ? "Automatic\n" : "Manual\n");
+    retval = rtlsdr_set_tuner_gain_mode(dev, gain_mode);
+    if (retval == 0) std::cout << "Gain mode set to: " << ((gain_mode == 0) ? "Automatic\n" : "Manual\n");
     else std::cout << "Setting gain mode failed!\n";
     
-    if (GAIN_MODE != 0)
+    if (gain_mode != 0)
     {    
-        retval = rtlsdr_set_tuner_gain(dev, GAIN);
-        if (retval == 0) std::cout << "Set gain to: " << GAIN / 10.0f << " dB\n";
+        retval = rtlsdr_set_tuner_gain(dev, gain);
+        if (retval == 0) std::cout << "Set gain to: " << gain / 10.0f << " dB\n";
         else std::cout << "Setting gain failed!\n";
     } 
     
