@@ -3,7 +3,7 @@ Sandbox for the rtl-sdr dongle
 
 #### Requirements
 ----------------------------
-librtlsdr-dev
+libusb-1.0-0-dev
 
 #### Build Instructions
 ----------------------------

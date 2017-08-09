@@ -1,7 +1,7 @@
 /*
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 2 of the License, or
+ * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
@@ -21,16 +21,16 @@
 
 #include <rtl-sdr.h>
 
-#include "CLI11.hpp"
+#include "CLI11.hpp" // Command line parsing
 
 #define U8_F(x) ( (((float)(x)) - 127.4f) / 128.0f ) // 127.4 for tuner DC bias in rtl
-#define SAMPLE_RATE 2048000
-#define CENTER_FREQ 1575420000
-#define GAIN_MODE 1 // 0 = Automatic, 1 = Manual
+#define DEFAULT_SAMPLE_RATE 2048000
+#define DEFAULT_CENTER_FREQ 1575420000
+#define DEFAULT_GAIN_MODE 1 // 0 = Automatic, 1 = Manual
 // Supported manual gain values: 0.0 0.9 1.4 2.7 3.7 7.7 8.7 12.5 14.4 15.7 16.6 19.7
 //                               20.7 22.9 25.4 28.0 29.7 32.8 33.8 36.4 37.2 38.6 40.2
 //                               42.1 43.4 43.9 44.5 48.0 49.6
-#define GAIN 402 // Manual gain value in tenths of dB
+#define DEFAULT_GAIN 0 // Manual gain value in tenths of dB
 
 typedef std::complex<float> cfloat;
 
@@ -48,7 +48,7 @@ void input_cb(uint8_t *buf, uint32_t length, void *arg)
     }
     
     // TODO: Create a processing function for the converted samples
-    std::cout << "Number of samples: " << num_samples << "\n";
+    std::cout << "Number of samples: " << num_samples << std::endl;
 }
 
 void read_samples(rtlsdr_dev_t *dev)
@@ -67,10 +67,11 @@ int main(int argc, char *argv[])
 
     // Parse command line
     CLI::App app{"mj-sdr"};
-    int sample_rate = SAMPLE_RATE;
-    int center_freq = CENTER_FREQ;
-    int gain_mode = GAIN_MODE;
-    int gain = GAIN;
+    int sample_rate = DEFAULT_SAMPLE_RATE;
+    int center_freq = DEFAULT_CENTER_FREQ;
+    int gain_mode = DEFAULT_GAIN_MODE;
+    int gain = DEFAULT_GAIN;
+    bool enable_biast = false;
     int device = 0;
 
     app.add_option("-d,--device", device, "RTL-SDR device id", true);
@@ -78,6 +79,7 @@ int main(int argc, char *argv[])
     app.add_option("-c,--center_freq", center_freq, "Center Frequency in Hz", true);
     app.add_option("-m,--gain_mode", gain_mode, "Gain Mode (0=Automatic, 1=Manual)", true);
     app.add_option("-g,--gain", gain, "Manual gain in tenths of dB", true);
+    app.add_flag("-b,--bias_t", enable_biast, "Enable Bias Tee");
 
     try 
     {
@@ -89,31 +91,43 @@ int main(int argc, char *argv[])
     }
 	
     // Find rtl-sdr devices
-    int devices = rtlsdr_get_device_count();
-    for(int n=0; n < devices; n++)
+    int num_devices = rtlsdr_get_device_count();
+    for(int n=0; n < num_devices; n++)
     {
         std::cout << "Device " << n << ": " << rtlsdr_get_device_name(n) << "\n\n";
     }
 
-    if (devices <= 0)
+    if (num_devices <= 0)
     {
         std::cout << "No Devices Found!\n";
+        return 0;
+    }
+    else if (device >= num_devices)
+    {
+        std::cout << "Device ID not valid!\n";
         return 0;
     }
 
     retval = rtlsdr_open(&dev, device);
     if (retval != 0)
     {
-        std::cout << "Failed to open device: " << device << "\n";
+        std::cout << "Failed to open device: " << device << std::endl;
         return 0;
     }
 	
     // Configure rtlsdr settings
+    if (enable_biast)
+    {
+        retval = rtlsdr_set_bias_tee(dev, 1);
+        if (retval == 0) std::cout << "Bias Tee Enabled\n";
+        else std::cout << "Failed to enable bias tee!\n";
+    }
+    
     retval = rtlsdr_set_sample_rate(dev, sample_rate);
     if (retval == 0) std::cout << "Sample rate set to: " << sample_rate << " Hz\n";
     else std::cout << "Setting sample rate failed!\n";
     
-    retval = rtlsdr_set_center_freq(dev, center_freq);    
+    retval = rtlsdr_set_center_freq(dev, center_freq);
     if (retval == 0) std::cout << "Center frequency set to: " << center_freq << " Hz\n";
     else std::cout << "Setting center frequency failed!\n";
     
@@ -122,12 +136,12 @@ int main(int argc, char *argv[])
     else std::cout << "Setting gain mode failed!\n";
     
     if (gain_mode != 0)
-    {    
+    {
         retval = rtlsdr_set_tuner_gain(dev, gain);
         if (retval == 0) std::cout << "Set gain to: " << gain / 10.0f << " dB\n";
         else std::cout << "Setting gain failed!\n";
-    } 
-    
+    }
+  
     retval = rtlsdr_reset_buffer(dev);
 	
     // Start reading samples
@@ -143,6 +157,7 @@ int main(int argc, char *argv[])
     // Cancel sample reading and quit
     rtlsdr_cancel_async(dev);
     sample_reader.join();
+    if (enable_biast) rtlsdr_set_bias_tee(dev, 0);
     rtlsdr_close(dev);
     return 0;
 }
